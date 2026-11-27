@@ -15,9 +15,8 @@ def main() -> int:
     """Run the command requested by the operator."""
 
     # Create a command-line argument parser.
-    parser = argparse.ArgumentParser(description="ProbenPilot SV08 X/Y controller")
+    parser = argparse.ArgumentParser(description="ProbenPilot SV08 motion controller")
 
-    # Support separate commands: status and move.
     commands = parser.add_subparsers(
         dest="command",
         required=True,
@@ -26,6 +25,10 @@ def main() -> int:
     commands.add_parser(
         "status",
         help="Read printer state without moving hardware",
+    )
+    commands.add_parser(
+        "home-z",
+        help="Run the Klipper Z homing override after interactive confirmation",
     )
 
     move_parser = commands.add_parser(
@@ -72,6 +75,18 @@ def main() -> int:
             )
             print("Reported position:", status["position"])
             print("Print-job state:", status["job_state"])
+            return 0
+
+        if args.command == "home-z":
+            print(
+                "Home Z also homes Y and X, moves to X191 Y165 to probe Z, "
+                "and finishes at Z10. Check the full homing path for clearance."
+            )
+            if input("Type HOME to execute Z homing: ") != "HOME":
+                print("Homing cancelled.")
+                return 0
+            controller.home_z()
+            print("Z homing confirmed by Klipper.")
             return 0
 
         if args.command == "move":

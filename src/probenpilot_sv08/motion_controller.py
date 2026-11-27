@@ -115,20 +115,7 @@ class MotionController:
         It never homes or moves the Z axis.
         """
 
-        # Homing requires Klipper to be operational.
-        state = self.client.get_printer_state()
-
-        if state != "ready":
-            raise MotionError(f"Cannot home axes. Printer state: {state}")
-
-        # Read the current printer status.
-        status = self.client.get_motion_status()
-
-        # Do not home during an active or paused print job.
-        if status["job_state"] != "standby":
-            raise MotionError("Cannot home X/Y unless print-job state is standby.")
-
-        homed_axes = status["homed_axes"]
+        homed_axes = self._check_homing_ready()
 
         # Only home the axes that actually need homing.
         # Keep X and Y commands separate because the
@@ -150,3 +137,26 @@ class MotionController:
 
         if not all(axis in status["homed_axes"] for axis in "xy"):
             raise MotionError("X/Y homing was not confirmed.")
+
+    def home_z(self) -> None:
+        """Run the supervised Klipper override that homes Y, X, then Z."""
+        # X/Y homing can set a provisional Z reference. Run the probe routine
+        # even when Klipper already reports Z as homed.
+        self._check_homing_ready()
+        self.client.execute_gcode("G28 Z\nM400")
+
+        if self.client.get_printer_state() != "ready":
+            raise MotionError("Klipper is no longer ready after Z homing.")
+        homed_axes = self.client.get_motion_status()["homed_axes"]
+        if not all(axis in homed_axes for axis in "xyz"):
+            raise MotionError("Z homing was not confirmed for all three axes.")
+
+    def _check_homing_ready(self) -> str:
+        state = self.client.get_printer_state()
+        if state != "ready":
+            raise MotionError(f"Cannot home axes. Printer state: {state}")
+
+        status = self.client.get_motion_status()
+        if status["job_state"] != "standby":
+            raise MotionError("Cannot home axes unless print-job state is standby.")
+        return status["homed_axes"]

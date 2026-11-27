@@ -39,6 +39,9 @@ class FakeClient:
         if "G28 Y" in script:
             self.axes += "y"
 
+        if "G28 Z" in script:
+            self.axes = "xyz"
+
 
 def test_homes_x_and_y_in_order():
     client = FakeClient()
@@ -63,25 +66,50 @@ def test_skips_homing_when_already_homed():
     assert client.commands == []
 
 
-def test_rejects_homing_during_printing():
+@pytest.mark.parametrize("axes", ["", "xyz"])
+def test_home_z_runs_override_even_with_provisional_z_reference(axes):
+    client = FakeClient()
+    client.axes = axes
+    controller = MotionController(client, Config())
+
+    controller.home_z()
+
+    assert client.commands == ["G28 Z\nM400"]
+    assert client.axes == "xyz"
+
+
+def test_home_z_requires_confirmation_of_all_axes(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(client, "execute_gcode", client.commands.append)
+    client.axes = "z"
+
+    with pytest.raises(MotionError, match="all three axes"):
+        MotionController(client, Config()).home_z()
+
+    assert client.commands == ["G28 Z\nM400"]
+
+
+@pytest.mark.parametrize("home", ["home_xy", "home_z"])
+def test_rejects_homing_during_printing(home):
     client = FakeClient()
     client.job_state = "printing"
 
     controller = MotionController(client, Config())
 
     with pytest.raises(MotionError, match="standby"):
-        controller.home_xy()
+        getattr(controller, home)()
 
     assert client.commands == []
 
 
-def test_rejects_homing_when_printer_not_ready():
+@pytest.mark.parametrize("home", ["home_xy", "home_z"])
+def test_rejects_homing_when_printer_not_ready(home):
     client = FakeClient()
     client.state = "error"
 
     controller = MotionController(client, Config())
 
     with pytest.raises(MotionError, match="Cannot home"):
-        controller.home_xy()
+        getattr(controller, home)()
 
     assert client.commands == []
